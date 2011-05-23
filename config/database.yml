@@ -1,15 +1,26 @@
 # SQLite version 3.x
 #   gem install sqlite3-ruby (not necessary on OS X Leopard)
-development:
-  adapter: mysql2
-  encoding: utf8
-  database: ohsnap
-  pool: 5
-  username: root
-  password:
-  socket: /tmp/mysql.sock
-  encoding: utf8
-  collation: utf8_general_ci
+# development:
+#   adapter: mysql2
+#   encoding: utf8
+#   database: ohsnap
+#   pool: 5
+#   username: root
+#   password:
+#   socket: /tmp/mysql.sock
+#   encoding: utf8
+#   collation: utf8_general_ci
+  
+  development:
+    adapter: mysql2
+    encoding: utf8
+    database: ohsnap
+    pool: 5
+    username: ohsnap
+    password: ohsnap
+    socket: /tmp/mysql.sock
+    encoding: utf8
+    collation: utf8_general_ci
 
 # RUN THIS COMMAND BEFORE USING DEVELOPMENT DB
 # ssh -f deploy@ec2-50-17-115-76.compute-1.amazonaws.com -L 10008:127.0.0.1:3306 -N

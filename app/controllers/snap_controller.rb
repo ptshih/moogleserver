@@ -5,8 +5,9 @@ class SnapController < ApplicationController
     # controller.authenticate_token # sets the @current_user var based on passed in access_token
   end
 
-  # Show a list of snaps for an album
+  # Show a stream of snaps for an album
   # @param REQUIRED album_id
+  # @param OPTIONAL header (always comes back with list of participants, return hash)
   # Authentication not required
   def index
     Rails.logger.info request.query_parameters.inspect
@@ -118,6 +119,30 @@ class SnapController < ApplicationController
       response_array << row_hash
     end
 
+    # snapstream (sort by created_at desc)
+    # :header
+      # :title => string of "15 people have shared snaps"
+      # :picture_urls => array of user picture_urls
+      # :particpants => preconstructed string of "tom, peter, nate and 12 more"
+    # :user_id
+    # :user_picture_url
+    # :user_name
+    # :timestamp
+    # :photo_url
+    # :message (caption)
+    # :comment_count
+    # :like_count
+    # :is_like (by the current user)
+    
+    # commentstream (sort by created_at asc)
+    # :like_string (preconstructed like bubble "Tom, Pete, Nate, ... liked this". All names spelled out)
+    # :comments (hash_array)
+      # :user_id
+      # :name
+      # :user_picture_url
+      # :comment
+      # :timestamp
+
     # Paging
     paging_hash = {}
     paging_hash[:since] = response_array.first[:timestamp]
@@ -175,7 +200,7 @@ class SnapController < ApplicationController
     album = Album.find_by_id(params[:album_id])
     album.update_attribute(:last_snap_id, s.id)
 
-    # Add user a album participant
+    # Add user as album participant
     query = " insert ignore into albums_users
               (user_id, album_id)
               select #{@current_user.id}, #{params[:album_id]}

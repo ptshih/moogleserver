@@ -8,16 +8,14 @@ class AlbumController < ApplicationController
   # Show a list of albums for the authenticated user (or optionally any user if public)
   # @param REQUIRED list_type "all", "contributing"
   # @param REQUIRED access_token
-  # @param OPTIONAL user_id (future filter for public streams, maybe)
+  # @param OPTIONAL q (query search by album name)
   # Authentication required
+  # Sample url: http://localhost:3000/v1/albums?list_type=contributing&access_token=[insertLocaltoken]&format=xml
   def index
     self.authenticate_token
 
     Rails.logger.info request.query_parameters.inspect
     api_call_start = Time.now.to_f
-    
-    ### TODO ###
-    # We should also provide a participants list for each album
 
     ########
     # NOTE #
@@ -28,8 +26,20 @@ class AlbumController < ApplicationController
     # object_hash[:paging] is optional and has a key :since and key :until
     # :since is the :timestamp of the first object in response_array
     # :until is the :timestamp of the last object in response_array
-    #
     # A subhash inside row_hash (i.e. participants_hash) will have the same format, just no :paging
+
+    
+    # Getting friend's list
+    friend_id_array = {}
+    query = " select friend_id, friend_name from friendships where user_id = #{@current_user.id}"
+    mysqlresults = ActiveRecord::Base.connection.execute(query)
+    mysqlresults.each(:as => :hash) do |row|
+      friend_hash = {
+        :id => row['friend_id'],
+        :name => row['friend_name']
+      }
+      friend_id_array[row['friend_id'].to_s] = friend_hash
+    end
 
     # Filter to show only albums where you are contributing
     album_id_array = []
@@ -61,8 +71,6 @@ class AlbumController < ApplicationController
     # Getting participants
     ###
     participants_hash = {}
-
-    # Prepare Query
     query = "
       select au.album_id, u.id, u.name, u.first_name, u.picture_url
       from albums_users au
@@ -87,16 +95,49 @@ class AlbumController < ApplicationController
     # Getting album stats
     # comments, likes
     ###
-    album_stats = { 'comment'=>{}, 'like'=>{}}
-    query = "select album_id, count(*) as thecount from snap_comments group by 1"
+    # album_stats = { 'comment'=>{}, 'like'=>{}}
+    # query = "select album_id, count(*) as thecount from snap_comments group by 1"
+    # mysqlresults = ActiveRecord::Base.connection.execute(query)
+    # mysqlresults.each(:as => :hash) do |row|
+    #   album_stats['comment'][row['album_id'].to_s]=row['thecount']
+    # end
+    # query = "select album_id, count(*) as thecount from snap_likes group by 1"
+    # mysqlresults = ActiveRecord::Base.connection.execute(query)
+    # mysqlresults.each(:as => :hash) do |row|
+    #   album_stats['like'][row['album_id'].to_s]=row['thecount']
+    # end
+    
+    # Getting album 5 recent snaps list and recent participants list
+    recent_image_urls = {}
+    participants_array = []
+    query = "select s.album_id, s.id, s.user_id, s.photo_file_name
+              from albums a
+              join snaps s on s.album_id = a.id
+              where a.id in (#{album_id_string})
+              order by a.updated_at desc, s.created_at desc"
     mysqlresults = ActiveRecord::Base.connection.execute(query)
     mysqlresults.each(:as => :hash) do |row|
-      album_stats['comment'][row['album_id'].to_s]=row['thecount']
-    end
-    query = "select album_id, count(*) as thecount from snap_likes group by 1"
-    mysqlresults = ActiveRecord::Base.connection.execute(query)
-    mysqlresults.each(:as => :hash) do |row|
-      album_stats['like'][row['album_id'].to_s]=row['thecount']
+        
+      # Get participant list based on recent + 1st degree friends
+      if (friend_id_array.has_key?(row['user_id'].to_s) || row['user_id'].to_i == @current_user.id) && participants_array.uniq.length<3
+        
+        # TODO: uniqify the string list of participants
+        if row['user_id'].to_i == @current_user.id
+          participants_array << "You"
+        else
+          participants_array << friend_id_array[row['user_id'].to_s]['name']
+        end
+      end
+      
+      if !recent_image_urls.has_key?(row['album_id'].to_s)
+        recent_image_urls[row['album_id'].to_s] = []
+      end
+      # Get only 5 most recent pictures; original or thumbnail?
+      if recent_image_urls[row['album_id'].to_s].length<5
+        photo_url = row['photo_file_name']
+        recent_image_urls[row['album_id'].to_s] << "#{S3_BASE_URL}/photos/#{row['id']}/original/#{row['photo_file_name']}"
+      end
+      
     end
     
     ###
@@ -108,12 +149,10 @@ class AlbumController < ApplicationController
       select
         a.id, a.last_snap_id, a.name, s.user_id, u.name as 'user_name', u.picture_url,
         s.message, s.media_type, s.photo_file_name, s.lat, s.lng, a.updated_at,
-        sum(case when s.media_type='photo' then 1 else 0 end) as photo_count,
-        sum(case when s.media_type='video' then 1 else 0 end) as video_count
+        sum(case when s.media_type='photo' then 1 else 0 end) as photo_count
       from albums a
       join snaps s on a.last_snap_id = s.id
       join users u on u.id = s.user_id
-      join snaps s2 on s2.album_id = a.id
       where a.id in (#{album_id_string})
       group by 1
     "
@@ -124,32 +163,41 @@ class AlbumController < ApplicationController
     response_array = []
     mysqlresults = ActiveRecord::Base.connection.execute(query)
     mysqlresults.each(:as => :hash) do |row|
+      
+      participants_string = ""
+      puts "This is the length " + participants_array.length.to_s
+      if participants_array.uniq.length <= participants_hash[row['id'].to_s].length
+        participants_string = participants_array.join(',')
+      else
+        participants_string = participants_array.join(',') + " and #{participants_hash[row['id'].to_s].length - participants_array.length} more"
+      end
+      
       # Each response hash consists of album id, name, and last_snap details flattened
       row_hash = {
         :id => row['id'].to_s, # album id
         :name => row['name'], # album name
-        :user_id => row['user_id'].to_s, # last_snap user id
-        :user_name => row['user_name'], # last_snap user name
-        :user_picture_url => row['picture_url'], #last_snap user picture url (facebook or google)
-        :message => row['message'], # last_snap message
-        :photo_url => "#{S3_BASE_URL}/photos/#{row['last_snap_id']}/thumb/#{row['photo_file_name']}",
-        :media_type => row['media_type'], # last_snap type
-        :photo_count => 0, # TODO
-        :video_count => 0, # TODO
-        :like_count => album_stats['like'][row['id'].to_s].nil? ? 0 : album_stats['like'][row['id'].to_s],
-        :comment_count => album_stats['comment'][row['id'].to_s].nil? ? 0 : album_stats['comment'][row['id'].to_s],
-        :lat => row['lat'],
-        :lng => row['lng'],
-        :participants => participants_hash[row['album_id'].to_s], # list of participants for this album
-        :timestamp => row['updated_at'].to_i # album updated_at
+        :photo_count => row['photo_count'], # count of photos in album
+        :participants => participants_hash[row['id'].to_s], # list of participants for this album
+        :participants_string => participants_string, # list of participants
+        :recent_image_urls => recent_image_urls[row['id'].to_s], # array of 5 recent image urls for album
+        :timestamp => row['updated_at'].to_i, # album updated_at
+        :test => participants_array.join(',')
       }
       response_array << row_hash
     end
-
+    
+    # :participant_list
+        # participants_hash[row['album_id'].to_s]
+    # :pregen_participant_string (up to 6 people and total count of first degree friends)
+        # 3 ppl and 123 more (estimate 60 characters including the "and...")
+        # make it dynamic so we can pass more ppl depending on client
+        # second degree is always in the 'and more' section
+        # list of ppl is sorted by first degree last update/add time
+    
     # Paging
     paging_hash = {}
-    paging_hash[:since] = response_array.first[:timestamp].nil? Time.now.to_i : response_array.first[:timestamp]
-    paging_hash[:until] = response_array.last[:timestamp].nil? Time.now.to_i : response_array.first[:timestamp]
+    # paging_hash[:since] = response_array.first[:timestamp].nil? ? Time.now.to_i : response_array.first[:timestamp]
+    # paging_hash[:until] = response_array.last[:timestamp].nil? ? Time.now.to_i : response_array.first[:timestamp]
     
     # Construct Response
     @response_hash = {}
