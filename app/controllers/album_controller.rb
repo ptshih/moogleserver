@@ -180,8 +180,7 @@ class AlbumController < ApplicationController
         :participants => participants_hash[row['id'].to_s], # list of participants for this album
         :participants_string => participants_string, # list of participants
         :recent_image_urls => recent_image_urls[row['id'].to_s], # array of 5 recent image urls for album
-        :timestamp => row['updated_at'].to_i, # album updated_at
-        :test => participants_array.join(',')
+        :timestamp => row['updated_at'].to_i # album updated_at
       }
       response_array << row_hash
     end

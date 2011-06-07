@@ -32,6 +32,12 @@ gem 'thin'
 gem 'sequel'
 gem 'json'
 
+# Gems for sinatra use with paperclip
+gem 'datamapper'
+gem 'dm-paperclip'
+gem 'haml'
+gem 'fileutils'
+
 # Bundle edge Rails instead:
 # gem 'rails', :git => 'git://github.com/rails/rails.git'
 
